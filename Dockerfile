@@ -3,7 +3,7 @@
 #      a slim or tensorflow base
 
 #      Standard version
-FROM python:3.12
+FROM python:3.10.6
 
 #      Slim version
 # FROM python:3.12-slim
@@ -11,22 +11,36 @@ FROM python:3.12
 #      Tensorflow version (attention: won't run on Apple Silicon)
 # FROM tensorflow/tensorflow:2.16.1
 
+# Work inside /app
+WORKDIR /app
+
+
+
 # Install requirements
-COPY requirements.txt requirements.txt
-RUN pip install --no-cache-dir --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir -r requirements.txt
 
 # Copy our code
-COPY packagename packagename
-COPY api api
+COPY api /app/api
+COPY faceit_package /app/faceit_package
+COPY models /app/models
 
 # Make directories that we need, but that are not included in the COPY
 RUN mkdir /raw_data
-RUN mkdir /models
+#RUN mkdir /models
 
 # COPY credentials.json credentials.json
 
 # TODO: to speed up, you can load your model from MLFlow or Google Cloud Storage at startup using
 # RUN python -c 'replace_this_with_the_commands_you_need_to_run_to_load_the_model'
+
+
+ENV PORT=8080
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+EXPOSE 8080
+
 
 CMD uvicorn api.fast:app --host 0.0.0.0 --port $PORT

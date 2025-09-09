@@ -45,3 +45,11 @@ secrets.toml
 
 # User defined extras
 # Complete to your desire
+.git
+*.pyc
+*.pyo
+*.pyd
+*.swp
+.envrc
+notebooks/
+tests/

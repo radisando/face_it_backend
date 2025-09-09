@@ -1,52 +1,95 @@
-# TODO: Import your package, replace this by explicit imports of what you need
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from faceit_package.model import get_model, predict_image
+from faceit_package.model import get_model, predict_image, predict_any
 from PIL import Image
 import io
 
-
-app = FastAPI(title="FaceIt Emotions API", version="1.0.0")
+app = FastAPI(title="FaceIt Emotions API", version="1.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["*"],   # tighten in prod
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Endpoint for https://your-domain.com/
+MAX_BYTES = 5 * 1024 * 1024  # 5 MB max upload
+
+
+@app.on_event("startup")
+def warmup():
+    # Load model once at startup
+    get_model()
+
+
 @app.get("/")
 def root():
-    return {
-        'message': "Hi, The API is running!"
-    }
+    return {"message": "FaceIt API up"}
 
-# Endpoint for https://your-domain.com/predict?input_one=154&input_two=199
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 @app.post("/predict")
-async def predict(file: UploadFile = File(...)):
+async def predict(
+    file: UploadFile = File(..., description="Image file (jpg/png)"),
+    use_face: bool = Query(
+        True, description="Detect largest face and crop before inference"
+    ),
+    topk: int = Query(
+        3, ge=1, description="Number of top classes to include in 'top3' (or topk)"
+    ),
+):
+    """
+    Teammate-style endpoint:
+    - accepts image upload
+    - optionally crops to largest detected face
+    - returns label, confidence, topk, raw probabilities, has_face, probabilities
+    """
     if not file.content_type or "image" not in file.content_type:
-        raise HTTPException(status_code=400, detail="Please upload an image file")
+        raise HTTPException(status_code=400, detail="Please upload an image file (jpg/png).")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file.")
+    if len(data) > MAX_BYTES:
+        raise HTTPException(status_code=413, detail=f"File too large (max {MAX_BYTES // (1024*1024)} MB).")
+
     try:
-        data = await file.read()
+        # predict_any can take bytes directly
+        result = predict_any(data, topk=topk, use_face=use_face)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Inference failed: {e}")
+
+
+@app.post("/predict-simple")
+async def predict_simple(
+    file: UploadFile = File(..., description="Image file (jpg/png)")
+):
+    """
+    Backwards-compatible endpoint:
+    - no face detection/cropping
+    - returns label, confidence, probabilities
+    """
+    if not file.content_type or "image" not in file.content_type:
+        raise HTTPException(status_code=400, detail="Please upload an image file (jpg/png).")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file.")
+    if len(data) > MAX_BYTES:
+        raise HTTPException(status_code=413, detail=f"File too large (max {MAX_BYTES // (1024*1024)} MB).")
+
+    try:
         img = Image.open(io.BytesIO(data))
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid image")
-    return predict_image(img)
+        raise HTTPException(status_code=400, detail="Invalid image.")
 
-
-#@app.get("/predict")
-#def get_predict(input_one: float,
-#            input_two: float):
-#    # TODO: Do something with your input
-#    # i.e. feed it to your model.predict, and return the output
-#    # For a dummy version, just return the sum of the two inputs and the original inputs
-#    prediction = float(input_one) + float(input_two)
-#    return {
-#        'prediction': prediction,
-#        'inputs': {
-#            'input_one': input_one,
-#            'input_two': input_two
-#        }
-#    }
+    try:
+        return predict_image(img)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Inference failed: {e}")

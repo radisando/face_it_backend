@@ -1,0 +1,14 @@
+.git
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+.env
+.env.yaml
+.envrc
+notebooks/
+raw_data/
+tests/
+.vscode/
+.DS_Store
